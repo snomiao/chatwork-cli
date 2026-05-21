@@ -53,7 +53,7 @@ chatwork send 111111111 "hello" --code=ab12cd34
 # → ✓ sent to rid=111111111 (msg_id=...)
 ```
 
-`<room>` accepts a numeric `rid` or `#<name>` (resolved against the cached rooms list).
+`<room>` accepts a numeric `rid`, a bare `<name>`, or `#<name>` — name lookup tries exact match first, then case-sensitive substring against the cached rooms list. Ambiguous matches error out with the candidate rids so you can disambiguate. So `cw read マイチャット` and `cw read #マイチャット` and `cw read 333333333` all reach the same room.
 
 ### `chatwork read <room> [-n 20] [--format text|json]`
 

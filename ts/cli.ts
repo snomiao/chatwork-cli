@@ -51,7 +51,7 @@ async function main(): Promise<void> {
       "Send a message (two-step: first call returns --code, re-run with code to commit)",
       (y) =>
         y
-          .positional("room", { type: "string", describe: "rid or #name" })
+          .positional("room", { type: "string", describe: "rid, name, or #name (exact match first, then substring)" })
           .positional("message", { type: "string", describe: "message body" })
           .option("code", { type: "string", describe: "confirm code from first call" })
           .demandOption(["room", "message"]),
@@ -68,7 +68,7 @@ async function main(): Promise<void> {
       "Read the last N messages of a room",
       (y) =>
         y
-          .positional("room", { type: "string", describe: "rid or #name" })
+          .positional("room", { type: "string", describe: "rid, name, or #name (exact match first, then substring)" })
           .option("limit", { alias: "n", type: "number", default: 20 })
           .option("format", {
             type: "string",
