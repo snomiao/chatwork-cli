@@ -29,7 +29,10 @@ https://www.chatwork.com/service/packages/chatwork/subpackages/api/token.php
 ```bash
 chatwork login                  # prompts stdin
 chatwork login --token=...      # non-interactive
+chatwork login --from-chrome    # macOS: pick a Chrome profile, scrape token.php
 ```
+
+`--from-chrome` lists Chrome profiles from `~/Library/Application Support/Google/Chrome/Local State`, decrypts the chosen profile's chatwork.com cookies (Keychain prompt for "Chrome Safe Storage" the first time), then fetches token.php with those cookies and pulls the API token out of the rendered HTML. If the session has expired, open Chatwork once in Chrome and retry. macOS only.
 
 ### `chatwork rooms [--format table|json]`
 

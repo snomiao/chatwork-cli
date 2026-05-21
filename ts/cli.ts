@@ -15,12 +15,22 @@ async function main(): Promise<void> {
       "login",
       "Store a Chatwork API token at ~/.config/chatwork-cli/config.json",
       (y) =>
-        y.option("token", {
-          type: "string",
-          describe: "API token (else prompted from stdin)",
-        }),
+        y
+          .option("token", {
+            type: "string",
+            describe: "API token (else prompted from stdin)",
+          })
+          .option("from-chrome", {
+            type: "boolean",
+            default: false,
+            describe:
+              "Pick a Chrome profile and scrape the API token from token.php using its session cookies",
+          }),
       async (argv) => {
-        await cmdLogin({ token: argv.token as string | undefined });
+        await cmdLogin({
+          token: argv.token as string | undefined,
+          fromChrome: argv["from-chrome"] as boolean | undefined,
+        });
       },
     )
     .command(
