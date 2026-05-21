@@ -8,7 +8,8 @@
   },
   "license": "MIT",
   "bin": {
-    "chatwork": "./ts/cli.ts"
+    "chatwork": "./ts/cli.ts",
+    "cw": "./ts/cli.ts"
   },
   "files": ["ts/", "README.md", "LICENSE"],
   "engines": {

@@ -10,12 +10,13 @@ bun install
 bun ts/cli.ts --help
 ```
 
-To wire `chatwork` globally:
+To wire `chatwork` (and the `cw` short alias) globally:
 
 ```bash
 chmod +x ts/cli.ts
 ln -sf "$(pwd)/ts/cli.ts" ~/.bun/bin/chatwork
-chatwork --help
+ln -sf "$(pwd)/ts/cli.ts" ~/.bun/bin/cw
+chatwork --help        # same as `cw --help`
 ```
 
 ## Commands (v0.1)
