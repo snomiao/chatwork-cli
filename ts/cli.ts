@@ -78,6 +78,11 @@ async function main(): Promise<void> {
     .strict()
     .help()
     .alias("h", "help")
+    .fail((msg, err) => {
+      if (err) throw err;
+      console.error(`chatwork: ${msg}`);
+      process.exit(1);
+    })
     .parseAsync();
 }
 
