@@ -64,6 +64,23 @@ chatwork read 111111111 -n 5
 
 `[To:{aid}]` mentions are replaced with `@<name>` via the room's member list.
 
+### `chatwork tail <room> [-n 10] [--interval 20] [--format text|json]`
+
+Print the last N messages, then poll every `--interval` seconds and print any new ones (dedup by `message_id`). Ctrl-C to stop.
+
+```bash
+chatwork tail 111111111 -n 5
+chatwork tail マイチャット --interval 10 --format json
+```
+
+### `chatwork watch <room1> <room2> ... [-n 10] [--interval 20] [--format text|json]`
+
+Tail multiple rooms concurrently. Each printed line is prefixed with `[room_name]` so you can tell rooms apart.
+
+```bash
+chatwork watch マイチャット 111111111 #symval
+```
+
 ## Rate limits
 
 Chatwork enforces:
@@ -82,7 +99,6 @@ bun tsc --noEmit
 
 ## Roadmap
 
-- v0.2: `chatwork watch <room>` (5–10s polling, message-id dedupe)
 - v0.2: `chatwork upload <room> <file>` (single multipart POST, 5 MB cap)
 - v1.0: `chatwork task add/list/done` (Chatwork-native task surface — no Slack equivalent)
 - v1.0: multi-profile support (multi-org), `chatwork me`, semantic-release packaging

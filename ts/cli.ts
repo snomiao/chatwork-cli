@@ -5,6 +5,8 @@ import { cmdLogin } from "./commands/login.ts";
 import { cmdRooms } from "./commands/rooms.ts";
 import { cmdSend } from "./commands/send.ts";
 import { cmdRead } from "./commands/read.ts";
+import { cmdTail } from "./commands/tail.ts";
+import { cmdWatch } from "./commands/watch.ts";
 import { ChatworkError } from "./api.ts";
 
 async function main(): Promise<void> {
@@ -84,7 +86,53 @@ async function main(): Promise<void> {
         });
       },
     )
-    .demandCommand(1, "Pick a command: login | rooms | send | read")
+    .command(
+      "tail <room>",
+      "Print last N messages then poll for new ones (Ctrl-C to stop)",
+      (y) =>
+        y
+          .positional("room", { type: "string", describe: "rid, name, or #name (exact match first, then substring)" })
+          .option("limit", { alias: "n", type: "number", default: 10, describe: "initial backlog count" })
+          .option("interval", { type: "number", default: 20, describe: "poll interval in seconds" })
+          .option("format", {
+            type: "string",
+            choices: ["text", "json"] as const,
+            default: "text",
+          })
+          .demandOption(["room"]),
+      async (argv) => {
+        await cmdTail({
+          room: argv.room as string,
+          limit: argv.limit as number,
+          interval: argv.interval as number,
+          format: argv.format as string,
+        });
+      },
+    )
+    .command(
+      "watch <rooms..>",
+      "Tail multiple rooms concurrently; each line is prefixed with [room_name]",
+      (y) =>
+        y
+          .positional("rooms", { type: "string", array: true, describe: "rid / name / #name list" })
+          .option("limit", { alias: "n", type: "number", default: 10, describe: "initial backlog count per room" })
+          .option("interval", { type: "number", default: 20, describe: "poll interval in seconds" })
+          .option("format", {
+            type: "string",
+            choices: ["text", "json"] as const,
+            default: "text",
+          })
+          .demandOption(["rooms"]),
+      async (argv) => {
+        await cmdWatch({
+          rooms: argv.rooms as string[],
+          limit: argv.limit as number,
+          interval: argv.interval as number,
+          format: argv.format as string,
+        });
+      },
+    )
+    .demandCommand(1, "Pick a command: login | rooms | send | read | tail | watch")
     .strict()
     .help()
     .alias("h", "help")
