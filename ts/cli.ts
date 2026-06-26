@@ -56,12 +56,14 @@ async function main(): Promise<void> {
           .positional("room", { type: "string", describe: "rid, name, or #name (exact match first, then substring)" })
           .positional("message", { type: "string", describe: "message body" })
           .option("code", { type: "string", describe: "confirm code from first call" })
+          .option("force", { type: "boolean", default: false, describe: "bypass the pre-send hook (emergency)" })
           .demandOption(["room", "message"]),
       async (argv) => {
         await cmdSend({
           room: argv.room as string,
           message: argv.message as string,
           code: argv.code as string | undefined,
+          force: argv.force as boolean | undefined,
         });
       },
     )

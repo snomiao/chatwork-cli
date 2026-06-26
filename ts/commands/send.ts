@@ -1,14 +1,59 @@
 // `chatwork send <room> "<msg>" [--code XXXX]`
 // Two-step confirm: first call prints --code=XXXX, re-run with same args + --code to commit.
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { sendMessage, ChatworkError } from "../api.ts";
-import { readConfig } from "../config.ts";
+import { readConfig, type Config } from "../config.ts";
 import { resolveRoom } from "../room-resolver.ts";
 
 const PENDING_TTL_MS = 60_000;
+const HOOK_TIMEOUT_MS = 20_000;
+
+function expandHome(p: string): string {
+  return p.startsWith("~") ? join(homedir(), p.slice(1)) : p;
+}
+
+// Run the configured pre-send hook. Returns the hook exit code (0 = pass).
+// fail-closed: spawn failure / timeout resolve to a non-zero code so the caller aborts.
+function runPreSendHook(
+  hookPath: string,
+  message: string,
+  rid: number,
+  roomArg: string,
+): Promise<number> {
+  return new Promise((resolve) => {
+    const child = spawn(expandHome(hookPath), {
+      stdio: ["pipe", "inherit", "inherit"],
+      env: {
+        ...process.env,
+        CHATWORK_ROOM_ID: String(rid),
+        CHATWORK_ROOM_ARG: roomArg,
+      },
+    });
+    let settled = false;
+    const done = (code: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(code);
+    };
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      console.error(`✗ pre-send hook timed out after ${HOOK_TIMEOUT_MS / 1000}s`);
+      done(124);
+    }, HOOK_TIMEOUT_MS);
+    child.on("error", (err) => {
+      console.error(`✗ pre-send hook failed to start: ${err.message}`);
+      done(126);
+    });
+    child.on("close", (code) => done(code ?? 1));
+    child.stdin.on("error", () => {}); // ignore EPIPE if hook never reads stdin
+    child.stdin.end(message);
+  });
+}
 
 interface Pending {
   room_arg: string;
@@ -31,6 +76,7 @@ export async function cmdSend(args: {
   room: string;
   message: string;
   code: string | undefined;
+  force?: boolean | undefined;
 }): Promise<void> {
   const cfg = readConfig();
   const hash = intentHash(args.room, args.message);
@@ -70,6 +116,30 @@ export async function cmdSend(args: {
   }
 
   const rid = await resolveRoom(cfg.token, args.room);
+
+  const hookApplies =
+    Array.isArray(cfg.client_rooms) &&
+    cfg.client_rooms.includes(rid) &&
+    typeof cfg.pre_send_hook === "string" &&
+    cfg.pre_send_hook.length > 0;
+  if (hookApplies) {
+    if (args.force) {
+      console.error(`⚠ pre-send hook bypassed via --force`);
+    } else {
+      const code = await runPreSendHook(
+        (cfg as Config).pre_send_hook!,
+        args.message,
+        rid,
+        args.room,
+      );
+      if (code !== 0) {
+        console.error(`✗ send aborted by pre-send hook (exit ${code})`);
+        process.exitCode = 3;
+        return; // keep pending file so the user can fix & re-send
+      }
+    }
+  }
+
   try {
     const result = await sendMessage(cfg.token, rid, args.message);
     unlinkSync(path);

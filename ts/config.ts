@@ -11,6 +11,8 @@ export interface Config {
   token: string;
   account_id?: number;
   name?: string;
+  client_rooms?: number[]; // pre-send hook allowlist (room ids)
+  pre_send_hook?: string; // path to pre-send factcheck hook (~ expanded)
 }
 
 export interface RoomCacheEntry {
