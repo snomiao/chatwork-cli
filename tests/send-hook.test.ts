@@ -4,6 +4,9 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Config } from "../ts/config.ts";
+// bun's mock.module is global and leaks across files; spread the real module so
+// exports other test files rely on (e.g. `call`) survive our partial override.
+import * as realApi from "../ts/api.ts";
 
 // Replicate send.ts's intentHash so we can drive the two-step confirm.
 function intentHash(roomArg: string, message: string): string {
@@ -25,11 +28,13 @@ mock.module("../ts/room-resolver.ts", () => ({
   resolveRoom: async (_token: string, _room: string) => RID,
 }));
 mock.module("../ts/api.ts", () => ({
+  ...realApi,
   sendMessage: async (_token: string, rid: number, body: string) => {
     sendCalls.push({ rid, body });
     return { message_id: "mock-msg" };
   },
-  ChatworkError: class ChatworkError extends Error {},
+  listMessages: async () => [],
+  listMembers: async () => [],
 }));
 
 // Import after mocks are registered.

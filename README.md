@@ -41,17 +41,29 @@ Lists rooms sorted by last activity. Caches `rid → name` to `~/.config/chatwor
 
 ### `chatwork send <room> "<msg>" [--code XXXX]`
 
-Two-step send guard:
+Two-step send guard. The first call is a read-before-write confirm gate: it
+previews the room's recent messages (so you see the context before replying) and
+warns if the outgoing text is near-identical to a recent message (probable
+re-post), then prints the `--code` you re-run with to actually send.
 
 ```bash
 chatwork send 111111111 "hello"
-# → Re-run within 60s with --code=ab12cd34 to send:
-#     room: 111111111
-#     body: hello
+# → --- Last messages in room (rid=111111111) ---------------
+#     [2026-07-02 10:31] taku: 先ほどの件、確認しました
+#     [2026-07-02 11:05] client: ありがとうございます
+#   --- Sending ------------------------------------
+#     → room: 111111111 (rid=111111111)
+#     Message: hello
+#   ------------------------------------------------
+#   Re-run within 60s with --code=ab12cd34 to send.
 
 chatwork send 111111111 "hello" --code=ab12cd34
 # → ✓ sent to rid=111111111 (msg_id=...)
 ```
+
+The context preview is best-effort: if the room can't be resolved or its
+messages can't be fetched, the gate shows `(room context unavailable)` and still
+mints the code — the send flow is never blocked by a preview failure.
 
 `<room>` accepts a numeric `rid`, a bare `<name>`, or `#<name>` — name lookup tries exact match first, then case-sensitive substring against the cached rooms list. Ambiguous matches error out with the candidate rids so you can disambiguate. So `cw read マイチャット` and `cw read #マイチャット` and `cw read 333333333` all reach the same room.
 
