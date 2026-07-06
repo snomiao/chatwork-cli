@@ -4,7 +4,7 @@
   "description": "Chatwork CLI — send / read messages, list rooms, with a confirm-code send guard.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/symval/chatwork-cli.git"
+    "url": "https://github.com/takusym/chatwork-cli.git"
   },
   "license": "MIT",
   "bin": {

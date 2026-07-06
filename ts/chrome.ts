@@ -20,7 +20,7 @@ const CHROME_ROOT = join(
 
 export interface ChromeProfile {
   dir: string;          // e.g. "Default", "Profile 1"
-  displayName: string;  // human label, e.g. "symphoneed.co.jp"
+  displayName: string;  // human label, e.g. "example.co.jp"
   userEmail?: string;
   path: string;         // absolute path to the profile dir
 }

@@ -5,7 +5,7 @@ Chatwork CLI mirroring the `slack-term` pattern. Send / read messages, list room
 ## Install (local dev)
 
 ```bash
-cd lib/chatwork-cli
+git clone https://github.com/takusym/chatwork-cli && cd chatwork-cli
 bun install
 bun ts/cli.ts --help
 ```
@@ -90,7 +90,7 @@ chatwork tail マイチャット --interval 10 --format json
 Tail multiple rooms concurrently. Each printed line is prefixed with `[room_name]` so you can tell rooms apart.
 
 ```bash
-chatwork watch マイチャット 111111111 #symval
+chatwork watch マイチャット 111111111 #team
 ```
 
 ## Rate limits

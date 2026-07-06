@@ -23,10 +23,10 @@ Requires [Bun](https://bun.sh) (the entrypoint is a TypeScript file run directly
 
 ```sh
 # Global install straight from GitHub (creates `chatwork` and `cw` on PATH)
-bun install -g github:symval/chatwork-cli
+bun install -g github:takusym/chatwork-cli
 
 # …or clone and link for local dev:
-git clone https://github.com/symval/chatwork-cli && cd chatwork-cli
+git clone https://github.com/takusym/chatwork-cli && cd chatwork-cli
 bun install
 ln -sf "$(pwd)/ts/cli.ts" ~/.bun/bin/chatwork
 ln -sf "$(pwd)/ts/cli.ts" ~/.bun/bin/cw
@@ -74,7 +74,7 @@ cw read マイチャット -n 5 --format json
 cw tail 111111111 -n 5 --interval 20
 
 # Watch several rooms at once; each line is prefixed with [room_name]
-cw watch マイチャット 111111111 "#symval"
+cw watch マイチャット 111111111 "#team"
 
 # Send a message (two-step confirm — see below)
 cw send 111111111 "hello"
@@ -88,7 +88,7 @@ exact match first, then case-sensitive substring against the cached rooms list.
 Ambiguous names error out with the candidate rids so you can disambiguate with a `rid`.
 So `cw read マイチャット`, `cw read #マイチャット`, and `cw read 333333333` all reach the same room.
 
-> Quote a `#name` in most shells (`"#symval"`) — an unquoted `#` starts a comment.
+> Quote a `#name` in most shells (`"#team"`) — an unquoted `#` starts a comment.
 
 ### `send`: read-before-write confirm gate
 
