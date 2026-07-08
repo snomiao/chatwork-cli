@@ -79,6 +79,14 @@ cw watch マイチャット 111111111 "#team"
 # Send a message (two-step confirm — see below)
 cw send 111111111 "hello"
 cw send 111111111 "hello" --code=<code>
+
+# Send with a [To:] mention (account_id or member name, resolved from the room)
+cw send 111111111 "確認お願いします" --to Alice          # → prepends [To:100]Aliceさん
+cw send 111111111 "ご確認を" --to Alice --to 田中太郎  # repeatable
+
+# Edit an already-sent message (same two-step --code confirm)
+cw edit 111111111 <message_id> "訂正後の本文"
+cw edit 111111111 <message_id> "訂正後の本文" --code=<code>
 ```
 
 ### `<room>` resolution
@@ -116,6 +124,28 @@ fetched, the gate shows `(room context unavailable)` and still mints the code �
 failure never blocks the send. The confirm code expires after 60s; re-run without `--code`
 for a fresh preview. **Don't bypass the two-step flow by auto-computing the code — let the
 preview be seen first.**
+
+### Don't spam — edit instead of stacking messages
+
+If your own last message in the room was sent within the last 60s, the `send` gate prints
+a non-blocking `⚠ 直前(N秒前)に同じルームへ送信しています` warning and suggests `cw edit`.
+Prefer consolidating: **edit your previous message** rather than firing a second, third,
+fourth message. Combine ack + answer + follow-up into one message when you can. The window
+is tunable via `CHATWORK_RESEND_WARN_SECONDS` (`0` disables the warning).
+
+### `--to` mentions
+
+`--to <account_id|name>` prepends a Chatwork `[To:]` mention. A name is resolved against the
+room members (exact match first, then substring); an `account_id` is used verbatim. Repeat
+`--to` for several people. The mention is part of the confirmed body (shown in the preview,
+bound by the `--code`).
+
+### `edit`: fix a sent message
+
+`cw edit <room> <message_id> "<new_body>"` edits a sent message with the same two-step
+`--code` confirm. The first call previews the current body next to the replacement. Get the
+`message_id` from `read`/`tail --format json` or the `send` success line. Editing is the
+right fix for a typo or an omission — reach for it before sending a correction as a new message.
 
 ## Rate limits
 

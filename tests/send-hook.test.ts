@@ -1,17 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createHash } from "node:crypto";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Config } from "../ts/config.ts";
+import { confirmCode } from "../ts/confirm.ts";
 // bun's mock.module is global and leaks across files; spread the real module so
 // exports other test files rely on (e.g. `call`) survive our partial override.
 import * as realApi from "../ts/api.ts";
-
-// Replicate send.ts's intentHash so we can drive the two-step confirm.
-function intentHash(roomArg: string, message: string): string {
-  return createHash("sha256").update(`${roomArg}\x00${message}`).digest("hex").slice(0, 8);
-}
 
 const ROOM_ARG = "client-room";
 const RID = 555;
@@ -23,6 +18,7 @@ let sendCalls: Array<{ rid: number; body: string }>;
 
 mock.module("../ts/config.ts", () => ({
   readConfig: () => cfg,
+  writeConfig: () => {},
 }));
 mock.module("../ts/room-resolver.ts", () => ({
   resolveRoom: async (_token: string, _room: string) => RID,
@@ -65,7 +61,7 @@ afterEach(() => {
 // Drive the two-step confirm: first call writes pending, second commits.
 async function send(message: string, opts: { force?: boolean } = {}): Promise<void> {
   await cmdSend({ room: ROOM_ARG, message, code: undefined });
-  const code = intentHash(ROOM_ARG, message);
+  const code = confirmCode("send", ROOM_ARG, message);
   await cmdSend({ room: ROOM_ARG, message, code, force: opts.force ?? false });
 }
 

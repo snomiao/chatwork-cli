@@ -4,6 +4,7 @@ import { hideBin } from "yargs/helpers";
 import { cmdLogin } from "./commands/login.ts";
 import { cmdRooms } from "./commands/rooms.ts";
 import { cmdSend } from "./commands/send.ts";
+import { cmdEdit } from "./commands/edit.ts";
 import { cmdRead } from "./commands/read.ts";
 import { cmdTail } from "./commands/tail.ts";
 import { cmdWatch } from "./commands/watch.ts";
@@ -55,6 +56,11 @@ async function main(): Promise<void> {
         y
           .positional("room", { type: "string", describe: "rid, name, or #name (exact match first, then substring)" })
           .positional("message", { type: "string", describe: "message body" })
+          .option("to", {
+            type: "string",
+            array: true,
+            describe: "prepend a [To:] mention; account_id or member name (exact→substring). Repeatable.",
+          })
           .option("code", { type: "string", describe: "confirm code from first call" })
           .option("force", { type: "boolean", default: false, describe: "bypass the pre-send hook (emergency)" })
           .demandOption(["room", "message"]),
@@ -64,6 +70,26 @@ async function main(): Promise<void> {
           message: argv.message as string,
           code: argv.code as string | undefined,
           force: argv.force as boolean | undefined,
+          to: argv.to as string[] | undefined,
+        });
+      },
+    )
+    .command(
+      "edit <room> <message_id> <message>",
+      "Edit a sent message (two-step: first call returns --code, re-run with code to commit)",
+      (y) =>
+        y
+          .positional("room", { type: "string", describe: "rid, name, or #name (exact match first, then substring)" })
+          .positional("message_id", { type: "string", describe: "message_id to edit (see `read`/`tail`)" })
+          .positional("message", { type: "string", describe: "new message body" })
+          .option("code", { type: "string", describe: "confirm code from first call" })
+          .demandOption(["room", "message_id", "message"]),
+      async (argv) => {
+        await cmdEdit({
+          room: argv.room as string,
+          messageId: argv.message_id as string,
+          message: argv.message as string,
+          code: argv.code as string | undefined,
         });
       },
     )
@@ -134,7 +160,7 @@ async function main(): Promise<void> {
         });
       },
     )
-    .demandCommand(1, "Pick a command: login | rooms | send | read | tail | watch")
+    .demandCommand(1, "Pick a command: login | rooms | send | edit | read | tail | watch")
     .strict()
     .help()
     .alias("h", "help")

@@ -53,6 +53,15 @@ export function formatRoomsTable(rooms: Room[]): string {
   return lines.join("\n");
 }
 
+// One-line preview of a message for confirm gates:
+// "[2026-07-03 14:22] Alice: head…". Mentions/quote tags are resolved to @name
+// and the body is collapsed to its first line and clipped to `headLen`.
+export function previewLine(m: Message, members: Member[], headLen = 100): string {
+  const body = resolveMentions(m.body, members);
+  const head = body.length > headLen ? `${body.slice(0, headLen)}…` : body;
+  return `[${formatTime(m.send_time)}] ${m.account.name}: ${head || "(empty)"}`;
+}
+
 export function formatMessages(messages: Message[], members: Member[]): string {
   return messages
     .map((m) => {

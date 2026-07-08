@@ -146,3 +146,27 @@ export const sendMessage = (token: string, rid: number, body: string, f?: typeof
     { method: "POST", body: { body } },
     f ?? fetch,
   ).then((r) => r.data);
+
+export const getMessage = (
+  token: string,
+  rid: number,
+  messageId: string,
+  f?: typeof fetch,
+) =>
+  call<Message>(token, `/rooms/${rid}/messages/${messageId}`, {}, f ?? fetch).then(
+    (r) => r.data,
+  );
+
+export const editMessage = (
+  token: string,
+  rid: number,
+  messageId: string,
+  body: string,
+  f?: typeof fetch,
+) =>
+  call<SendResult>(
+    token,
+    `/rooms/${rid}/messages/${messageId}`,
+    { method: "PUT", body: { body } },
+    f ?? fetch,
+  ).then((r) => r.data);

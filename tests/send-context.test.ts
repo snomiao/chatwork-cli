@@ -19,6 +19,7 @@ let err: string[];
 
 mock.module("../ts/config.ts", () => ({
   readConfig: () => cfg,
+  writeConfig: () => {},
 }));
 mock.module("../ts/room-resolver.ts", () => ({
   resolveRoom: async (_token: string, _room: string) => RID,
@@ -31,6 +32,8 @@ mock.module("../ts/api.ts", () => ({
     return messages;
   },
   listMembers: async () => members,
+  // never hit the network for self-account resolution in tests
+  getMe: async () => ({ account_id: cfg.account_id ?? 999, name: "me" }),
 }));
 
 const { cmdSend } = await import("../ts/commands/send.ts");
@@ -49,7 +52,9 @@ const origLog = console.log;
 const origErr = console.error;
 
 beforeEach(() => {
-  cfg = { token: "t" };
+  // self = 999 by default so the fixture messages (account_id 1) never look
+  // like our own recent post; the self-send-warn tests override this.
+  cfg = { token: "t", account_id: 999 };
   failFetch = false;
   members = [];
   messages = [
@@ -102,5 +107,67 @@ describe("cmdSend read-before-write confirm context", () => {
     const text = out.join("\n");
     expect(text).toContain("(room context unavailable)");
     expect(text).toContain("--code=");
+  });
+});
+
+describe("cmdSend --to mentions", () => {
+  test("prepends a [To:] mention (resolved from members) to the previewed body", async () => {
+    members = [{ account_id: 100, role: "member", name: "Alice" }];
+    await cmdSend({ room: ROOM_ARG, message: "本文です", code: undefined, to: ["Alice"] });
+    const text = out.join("\n");
+    expect(text).toContain("[To:100]Aliceさん");
+    expect(text).toContain("本文です");
+  });
+
+  test("an unresolvable --to aborts before minting a code", async () => {
+    members = [{ account_id: 100, role: "member", name: "Alice" }];
+    await expect(
+      cmdSend({ room: ROOM_ARG, message: "x", code: undefined, to: ["誰それ"] }),
+    ).rejects.toThrow(/no member/);
+    expect(out.join("\n")).not.toContain("--code=");
+  });
+});
+
+describe("cmdSend recent self-send warning", () => {
+  const nowSec = () => Math.floor(Date.now() / 1000);
+
+  test("warns + hints edit when I posted here within the window", async () => {
+    cfg = { token: "t", account_id: 1 };
+    messages = [msg("777", "Me", "my last message", nowSec() - 12)];
+    await gate("a follow-up message");
+    const text = err.join("\n");
+    expect(text).toContain("直前");
+    expect(text).toContain("message_id=777");
+    expect(text).toContain("cw edit 555 777");
+  });
+
+  test("no warning when the last self-send is older than the window", async () => {
+    cfg = { token: "t", account_id: 1 };
+    messages = [msg("777", "Me", "my old message", nowSec() - 600)];
+    await gate("a follow-up message");
+    expect(err.join("\n")).not.toContain("直前");
+  });
+
+  test("no warning when the last message is someone else's", async () => {
+    cfg = { token: "t", account_id: 1 };
+    messages = [msg("888", "Someone", "their message", nowSec() - 5)];
+    // fixture msg() stamps account_id 1; override to a different sender
+    messages[0]!.account.account_id = 2;
+    await gate("a reply");
+    expect(err.join("\n")).not.toContain("直前");
+  });
+
+  test("CHATWORK_RESEND_WARN_SECONDS=0 disables the warning", async () => {
+    cfg = { token: "t", account_id: 1 };
+    messages = [msg("777", "Me", "my last message", nowSec() - 2)];
+    const prev = process.env.CHATWORK_RESEND_WARN_SECONDS;
+    process.env.CHATWORK_RESEND_WARN_SECONDS = "0";
+    try {
+      await gate("a follow-up message");
+      expect(err.join("\n")).not.toContain("直前");
+    } finally {
+      if (prev === undefined) delete process.env.CHATWORK_RESEND_WARN_SECONDS;
+      else process.env.CHATWORK_RESEND_WARN_SECONDS = prev;
+    }
   });
 });

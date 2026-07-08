@@ -65,7 +65,55 @@ The context preview is best-effort: if the room can't be resolved or its
 messages can't be fetched, the gate shows `(room context unavailable)` and still
 mints the code — the send flow is never blocked by a preview failure.
 
+**Anti-spam nudge.** If your own most recent message in the room was sent within
+the last 60s, the gate prints a non-blocking warning suggesting `cw edit` instead
+of stacking another message. It never blocks (intentional multi-sends are valid).
+Tune or disable the window with `CHATWORK_RESEND_WARN_SECONDS` (`0` = off):
+
+```bash
+chatwork send 222222222 "追記です"
+# → ⚠ 直前(12秒前)に同じルームへ送信しています(message_id=1234567890)。
+#     連投ではなく、その内容を編集する方が適切かもしれません:
+#     cw edit 222222222 1234567890 "<新しい本文>"
+#     続けて新規送信する場合はそのまま --code で確定してください。
+#   --- Last messages in room ... (preview continues) ---
+```
+
+**`--to <account_id|name>` mentions.** Prepend a Chatwork `[To:]` mention. The
+target is an `account_id` or a member name resolved against the room member list
+(exact match first, then substring — same order as room-name resolution).
+Repeatable for multiple mentions. The mention becomes part of the confirmed body,
+so it shows in the preview and is bound by the `--code`.
+
+```bash
+chatwork send 222222222 "確認お願いします" --to Alice
+# → Message: [To:100]Aliceさん\n確認お願いします   (then the usual --code gate)
+chatwork send 222222222 "全員ご確認ください" --to Alice --to 田中太郎
+```
+
 `<room>` accepts a numeric `rid`, a bare `<name>`, or `#<name>` — name lookup tries exact match first, then case-sensitive substring against the cached rooms list. Ambiguous matches error out with the candidate rids so you can disambiguate. So `cw read マイチャット` and `cw read #マイチャット` and `cw read 333333333` all reach the same room.
+
+### `chatwork edit <room> <message_id> "<new_body>" [--code XXXX]`
+
+Edit a sent message via `PUT /rooms/{rid}/messages/{message_id}`, using the same
+two-step `--code` confirm as `send`. The first call previews the current message
+body (read-before-write) next to the replacement; re-run with the code to commit.
+Get the `message_id` from `read`/`tail` (`--format json`) or the send success line.
+
+```bash
+chatwork edit 222222222 1234567890 "訂正: 打ち合わせは15時からです"
+# → --- Editing message in room (rid=222222222) -------
+#     message_id: 1234567890
+#     current: [2026-07-08 14:00] taku: 打ち合わせは14時からです
+#   --- New body -----------------------------------
+#     → room: 222222222 (rid=222222222)
+#     Message: 訂正: 打ち合わせは15時からです
+#   ------------------------------------------------
+#   Re-run within 60s with --code=abcd1234 to edit.
+
+chatwork edit 222222222 1234567890 "訂正: 打ち合わせは15時からです" --code=abcd1234
+# → ✓ edited msg_id=1234567890 in rid=222222222
+```
 
 ### `chatwork read <room> [-n 20] [--format text|json]`
 

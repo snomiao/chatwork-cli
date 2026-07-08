@@ -1,27 +1,37 @@
-// `chatwork send <room> "<msg>" [--code XXXX]`
+// `chatwork send <room> "<msg>" [--to <id|name>...] [--code XXXX]`
 // Two-step confirm: first call prints --code=XXXX, re-run with same args + --code to commit.
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   sendMessage,
   listMessages,
   listMembers,
+  getMe,
   ChatworkError,
   type Message,
   type Member,
 } from "../api.ts";
-import { readConfig, type Config } from "../config.ts";
+import { readConfig, writeConfig, type Config } from "../config.ts";
 import { resolveRoom } from "../room-resolver.ts";
-import { formatTime, resolveMentions } from "../format.ts";
+import { previewLine, resolveMentions } from "../format.ts";
+import { buildMentionPrefix } from "../mention.ts";
+import {
+  confirmCode,
+  stagePending,
+  checkPending,
+  clearPending,
+  pendingError,
+  PENDING_TTL_MS,
+} from "../confirm.ts";
 
 // Similarity threshold above which the outgoing text is flagged as a probable
 // re-post of a recent message. High on purpose: only near-identical text trips it.
 const DUP_THRESHOLD = 0.82;
 
-const PENDING_TTL_MS = 60_000;
+// Default window for the "you just posted here" warning; override via env.
+const DEFAULT_RESEND_WARN_SECONDS = 60;
+
 const HOOK_TIMEOUT_MS = 20_000;
 
 function expandHome(p: string): string {
@@ -67,31 +77,7 @@ function runPreSendHook(
   });
 }
 
-interface Pending {
-  room_arg: string;
-  message: string;
-  created_at: number;
-}
-
-function intentHash(roomArg: string, message: string): string {
-  return createHash("sha256")
-    .update(`${roomArg}\x00${message}`)
-    .digest("hex")
-    .slice(0, 8);
-}
-
-function pendingPath(hash: string): string {
-  return join(tmpdir(), `chatwork-cli-pending-${hash}.json`);
-}
-
-// One-line preview of a room message for the confirm gate:
-// "[2026-07-03 14:22] Alice: head…". Mentions/quote tags are resolved to @name
-// and the body is collapsed to its first line and clipped.
-function previewLine(m: Message, members: Member[], headLen = 100): string {
-  const body = resolveMentions(m.body, members);
-  const head = body.length > headLen ? `${body.slice(0, headLen)}…` : body;
-  return `[${formatTime(m.send_time)}] ${m.account.name}: ${head || "(empty)"}`;
-}
+// --- duplicate / re-post detection ---
 
 // Normalize text for duplicate comparison: lowercase, strip Chatwork markup
 // ([To:..], [rp ..], [qt]…), drop punctuation, collapse whitespace — so cosmetic
@@ -162,6 +148,55 @@ async function gatherRoomContext(token: string, roomArg: string): Promise<RoomCo
   }
 }
 
+// Seconds within which a prior self-send to the same room triggers the
+// anti-spam warning. `CHATWORK_RESEND_WARN_SECONDS=0` disables it.
+function resendWarnSeconds(): number {
+  const raw = process.env.CHATWORK_RESEND_WARN_SECONDS;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_RESEND_WARN_SECONDS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_RESEND_WARN_SECONDS;
+}
+
+// The logged-in account_id, from config or (once) from /me — cached back so the
+// next send skips the round-trip. Fail-soft: returns undefined if unresolvable.
+async function resolveSelfAccountId(cfg: Config): Promise<number | undefined> {
+  if (typeof cfg.account_id === "number") return cfg.account_id;
+  try {
+    const me = await getMe(cfg.token);
+    try {
+      writeConfig({ ...cfg, account_id: me.account_id, name: me.name });
+    } catch {
+      // caching is best-effort
+    }
+    return me.account_id;
+  } catch {
+    return undefined;
+  }
+}
+
+// Anti-spam nudge: if the most recent message in the room is our own and was
+// sent within the warning window, point the user at `cw edit` instead of
+// stacking another message. Never blocks — intentional multi-sends are valid.
+async function warnRecentSelfSend(
+  cfg: Config,
+  ctx: RoomContext,
+  roomArg: string,
+): Promise<void> {
+  const thresholdSec = resendWarnSeconds();
+  if (thresholdSec <= 0) return;
+  const last = ctx.messages[ctx.messages.length - 1];
+  if (!last) return;
+  const selfId = await resolveSelfAccountId(cfg);
+  if (selfId === undefined || last.account.account_id !== selfId) return;
+  const agoSec = Math.max(0, Math.floor(Date.now() / 1000) - last.send_time);
+  if (agoSec > thresholdSec) return;
+  const dest = ctx.rid != null ? String(ctx.rid) : roomArg;
+  console.error(`⚠ 直前(${agoSec}秒前)に同じルームへ送信しています(message_id=${last.message_id})。`);
+  console.error(`  連投ではなく、その内容を編集する方が適切かもしれません:`);
+  console.error(`  cw edit ${dest} ${last.message_id} "<新しい本文>"`);
+  console.error(`  続けて新規送信する場合はそのまま --code で確定してください。`);
+}
+
 // Print the read-before-write confirm block: the room's recent messages, a
 // duplicate warning if the outgoing text closely matches a recent message, and
 // the "Sending" summary. Mirrors slack-cli's confirm gate.
@@ -208,43 +243,36 @@ export async function cmdSend(args: {
   message: string;
   code: string | undefined;
   force?: boolean | undefined;
+  to?: string[] | undefined;
 }): Promise<void> {
   const cfg = readConfig();
-  const hash = intentHash(args.room, args.message);
-  const path = pendingPath(hash);
+
+  // Resolve `--to` mentions into the effective body up front, so the confirm
+  // code and the preview both bind the exact text that will be sent. A mention
+  // that can't be resolved is a hard error (the user's intent can't be honored).
+  let message = args.message;
+  if (args.to && args.to.length) {
+    const rid = await resolveRoom(cfg.token, args.room);
+    const members = await listMembers(cfg.token, rid);
+    message = buildMentionPrefix(members, args.to) + message;
+  }
+
+  const code = confirmCode("send", args.room, message);
 
   if (!args.code) {
-    // Read-before-write: show the room's recent messages (and a duplicate
-    // warning) so the sender sees the context before confirming the send.
+    // Read-before-write: show the room's recent messages, a duplicate warning,
+    // and a re-post nudge so the sender sees context before confirming.
     const ctx = await gatherRoomContext(cfg.token, args.room);
-    printConfirmContext(ctx, args.room, args.message);
-
-    const pending: Pending = {
-      room_arg: args.room,
-      message: args.message,
-      created_at: Date.now(),
-    };
-    writeFileSync(path, JSON.stringify(pending), { mode: 0o600 });
-    console.log(
-      `Re-run within ${PENDING_TTL_MS / 1000}s with --code=${hash} to send.`,
-    );
+    await warnRecentSelfSend(cfg, ctx, args.room);
+    printConfirmContext(ctx, args.room, message);
+    stagePending("send", code);
+    console.log(`Re-run within ${PENDING_TTL_MS / 1000}s with --code=${code} to send.`);
     return;
   }
 
-  if (args.code !== hash) {
-    console.error(`code mismatch: expected ${hash}, got ${args.code}`);
-    process.exitCode = 1;
-    return;
-  }
-  if (!existsSync(path)) {
-    console.error(`no pending intent for code=${hash}. Re-run without --code to start over.`);
-    process.exitCode = 1;
-    return;
-  }
-  const pending = JSON.parse(readFileSync(path, "utf8")) as Pending;
-  if (Date.now() - pending.created_at > PENDING_TTL_MS) {
-    unlinkSync(path);
-    console.error(`pending intent expired (>${PENDING_TTL_MS / 1000}s). Re-run without --code.`);
+  const reason = checkPending("send", args.code, code);
+  if (reason) {
+    console.error(pendingError(reason, code));
     process.exitCode = 1;
     return;
   }
@@ -260,14 +288,14 @@ export async function cmdSend(args: {
     if (args.force) {
       console.error(`⚠ pre-send hook bypassed via --force`);
     } else {
-      const code = await runPreSendHook(
+      const hookCode = await runPreSendHook(
         (cfg as Config).pre_send_hook!,
-        args.message,
+        message,
         rid,
         args.room,
       );
-      if (code !== 0) {
-        console.error(`✗ send aborted by pre-send hook (exit ${code})`);
+      if (hookCode !== 0) {
+        console.error(`✗ send aborted by pre-send hook (exit ${hookCode})`);
         process.exitCode = 3;
         return; // keep pending file so the user can fix & re-send
       }
@@ -275,8 +303,8 @@ export async function cmdSend(args: {
   }
 
   try {
-    const result = await sendMessage(cfg.token, rid, args.message);
-    unlinkSync(path);
+    const result = await sendMessage(cfg.token, rid, message);
+    clearPending("send", code);
     console.log(`✓ sent to rid=${rid} (msg_id=${result.message_id})`);
   } catch (e) {
     if (e instanceof ChatworkError && e.status === 429 && e.rate) {
