@@ -127,11 +127,19 @@ preview be seen first.**
 
 ### Don't spam — edit instead of stacking messages
 
-If your own last message in the room was sent within the last 60s, the `send` gate prints
-a non-blocking `⚠ 直前(N秒前)に同じルームへ送信しています` warning and suggests `cw edit`.
+If the room's most recent message is your own, the `send` gate prints a non-blocking
+warning (with that message's id) and suggests `cw edit`. Two triggers:
+
+- **Reply-state (default on):** the last message is yours → the other side hasn't replied.
+  Fires regardless of elapsed time — `⚠ 相手はまだ返信していません(最後のメッセージはあなたのものです)`.
+  This is the signal that matters: don't pile onto an unanswered thread. Disable with
+  `CHATWORK_UNREPLIED_WARN=0`.
+- **Time-based (fallback):** your last message was within `CHATWORK_RESEND_WARN_SECONDS`
+  (default 60s, `0` disables). Only fires when the reply-state warning is off.
+
 Prefer consolidating: **edit your previous message** rather than firing a second, third,
-fourth message. Combine ack + answer + follow-up into one message when you can. The window
-is tunable via `CHATWORK_RESEND_WARN_SECONDS` (`0` disables the warning).
+fourth message. Combine ack + answer + follow-up into one message when you can. Both
+warnings embed the `message_id` so you can `cw edit <room> <message_id> "…"` directly.
 
 ### `--to` mentions
 

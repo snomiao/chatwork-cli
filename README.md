@@ -65,17 +65,24 @@ The context preview is best-effort: if the room can't be resolved or its
 messages can't be fetched, the gate shows `(room context unavailable)` and still
 mints the code — the send flow is never blocked by a preview failure.
 
-**Anti-spam nudge.** If your own most recent message in the room was sent within
-the last 60s, the gate prints a non-blocking warning suggesting `cw edit` instead
-of stacking another message. It never blocks (intentional multi-sends are valid).
-Tune or disable the window with `CHATWORK_RESEND_WARN_SECONDS` (`0` = off):
+**Anti-spam nudge.** If the room's most recent message is your own, the gate
+prints a non-blocking warning suggesting `cw edit` (with that message's id ready
+to paste) instead of stacking another message. It never blocks — intentional
+multi-sends are valid. Two independent triggers, reply-state primary:
+
+- **Reply-state** (default on): the last message in the room is yours → nobody
+  has replied since. Time-independent — the accurate "don't pile onto an
+  unanswered thread" signal. Disable with `CHATWORK_UNREPLIED_WARN=0`.
+- **Time-based** (fallback): your last message was within the last 60s. Only
+  fires when the reply-state warning is off. Tune/disable the window with
+  `CHATWORK_RESEND_WARN_SECONDS` (`0` = off).
 
 ```bash
 chatwork send 222222222 "追記です"
-# → ⚠ 直前(12秒前)に同じルームへ送信しています(message_id=1234567890)。
-#     連投ではなく、その内容を編集する方が適切かもしれません:
+# → ⚠ 相手はまだ返信していません(最後のメッセージはあなたのものです)。
+#     連投を避けるため、新規送信でなく直前のメッセージの編集を検討してください:
 #     cw edit 222222222 1234567890 "<新しい本文>"
-#     続けて新規送信する場合はそのまま --code で確定してください。
+#     このまま送信する場合はそのまま --code で確定してください。
 #   --- Last messages in room ... (preview continues) ---
 ```
 

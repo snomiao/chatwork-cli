@@ -128,46 +128,106 @@ describe("cmdSend --to mentions", () => {
   });
 });
 
-describe("cmdSend recent self-send warning", () => {
+describe("cmdSend self-send warnings", () => {
   const nowSec = () => Math.floor(Date.now() / 1000);
 
-  test("warns + hints edit when I posted here within the window", async () => {
-    cfg = { token: "t", account_id: 1 };
-    messages = [msg("777", "Me", "my last message", nowSec() - 12)];
-    await gate("a follow-up message");
-    const text = err.join("\n");
-    expect(text).toContain("直前");
-    expect(text).toContain("message_id=777");
-    expect(text).toContain("cw edit 555 777");
+  // Set env vars for one test and restore them afterwards.
+  async function withEnv(
+    vars: Record<string, string | undefined>,
+    fn: () => Promise<void>,
+  ): Promise<void> {
+    const prev: Record<string, string | undefined> = {};
+    for (const [k, v] of Object.entries(vars)) {
+      prev[k] = process.env[k];
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    try {
+      await fn();
+    } finally {
+      for (const [k, v] of Object.entries(prev)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  }
+
+  describe("reply-state warning (default on)", () => {
+    test("warns + hints edit when the last message is mine (any age)", async () => {
+      cfg = { token: "t", account_id: 1 };
+      messages = [msg("777", "Me", "my old unanswered message", nowSec() - 6000)];
+      await gate("a follow-up message");
+      const text = err.join("\n");
+      expect(text).toContain("相手はまだ返信していません");
+      expect(text).toContain("cw edit 555 777");
+    });
+
+    test("no warning when someone replied after me (last message is theirs)", async () => {
+      cfg = { token: "t", account_id: 1 };
+      const mine = msg("777", "Me", "my message", nowSec() - 30);
+      const theirs = msg("888", "Them", "their reply", nowSec() - 5);
+      theirs.account.account_id = 2;
+      messages = [mine, theirs];
+      await gate("another message");
+      expect(err.join("\n")).not.toContain("相手はまだ返信していません");
+      expect(err.join("\n")).not.toContain("直前");
+    });
+
+    test("CHATWORK_UNREPLIED_WARN=0 disables the reply-state warning", async () => {
+      cfg = { token: "t", account_id: 1 };
+      messages = [msg("777", "Me", "my old message", nowSec() - 6000)];
+      await withEnv({ CHATWORK_UNREPLIED_WARN: "0" }, async () => {
+        await gate("a follow-up message");
+        // too old for the time-based window either → no warning at all
+        expect(err.join("\n")).not.toContain("相手はまだ返信していません");
+        expect(err.join("\n")).not.toContain("直前");
+      });
+    });
   });
 
-  test("no warning when the last self-send is older than the window", async () => {
-    cfg = { token: "t", account_id: 1 };
-    messages = [msg("777", "Me", "my old message", nowSec() - 600)];
-    await gate("a follow-up message");
-    expect(err.join("\n")).not.toContain("直前");
+  describe("time-based fallback (reply-state off)", () => {
+    test("warns within the window when reply-state is disabled", async () => {
+      cfg = { token: "t", account_id: 1 };
+      messages = [msg("777", "Me", "my recent message", nowSec() - 12)];
+      await withEnv({ CHATWORK_UNREPLIED_WARN: "0" }, async () => {
+        await gate("a follow-up message");
+        const text = err.join("\n");
+        expect(text).toContain("直前");
+        expect(text).toContain("message_id=777");
+        expect(text).toContain("cw edit 555 777");
+      });
+    });
+
+    test("no warning outside the window when reply-state is disabled", async () => {
+      cfg = { token: "t", account_id: 1 };
+      messages = [msg("777", "Me", "my old message", nowSec() - 600)];
+      await withEnv({ CHATWORK_UNREPLIED_WARN: "0" }, async () => {
+        await gate("a follow-up message");
+        expect(err.join("\n")).not.toContain("直前");
+      });
+    });
+
+    test("both disabled → no warning at all", async () => {
+      cfg = { token: "t", account_id: 1 };
+      messages = [msg("777", "Me", "my recent message", nowSec() - 2)];
+      await withEnv(
+        { CHATWORK_UNREPLIED_WARN: "0", CHATWORK_RESEND_WARN_SECONDS: "0" },
+        async () => {
+          await gate("a follow-up message");
+          expect(err.join("\n")).not.toContain("直前");
+          expect(err.join("\n")).not.toContain("相手はまだ返信していません");
+        },
+      );
+    });
   });
 
   test("no warning when the last message is someone else's", async () => {
     cfg = { token: "t", account_id: 1 };
-    messages = [msg("888", "Someone", "their message", nowSec() - 5)];
-    // fixture msg() stamps account_id 1; override to a different sender
-    messages[0]!.account.account_id = 2;
+    const m = msg("888", "Someone", "their message", nowSec() - 5);
+    m.account.account_id = 2;
+    messages = [m];
     await gate("a reply");
+    expect(err.join("\n")).not.toContain("相手はまだ返信していません");
     expect(err.join("\n")).not.toContain("直前");
-  });
-
-  test("CHATWORK_RESEND_WARN_SECONDS=0 disables the warning", async () => {
-    cfg = { token: "t", account_id: 1 };
-    messages = [msg("777", "Me", "my last message", nowSec() - 2)];
-    const prev = process.env.CHATWORK_RESEND_WARN_SECONDS;
-    process.env.CHATWORK_RESEND_WARN_SECONDS = "0";
-    try {
-      await gate("a follow-up message");
-      expect(err.join("\n")).not.toContain("直前");
-    } finally {
-      if (prev === undefined) delete process.env.CHATWORK_RESEND_WARN_SECONDS;
-      else process.env.CHATWORK_RESEND_WARN_SECONDS = prev;
-    }
   });
 });

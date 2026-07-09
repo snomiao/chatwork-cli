@@ -149,12 +149,22 @@ async function gatherRoomContext(token: string, roomArg: string): Promise<RoomCo
 }
 
 // Seconds within which a prior self-send to the same room triggers the
-// anti-spam warning. `CHATWORK_RESEND_WARN_SECONDS=0` disables it.
+// time-based anti-spam warning. `CHATWORK_RESEND_WARN_SECONDS=0` disables it.
 function resendWarnSeconds(): number {
   const raw = process.env.CHATWORK_RESEND_WARN_SECONDS;
   if (raw === undefined || raw.trim() === "") return DEFAULT_RESEND_WARN_SECONDS;
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : DEFAULT_RESEND_WARN_SECONDS;
+}
+
+// Reply-state warning: warn (regardless of elapsed time) when the room's last
+// message is our own — i.e. nobody has replied since. On by default; disable
+// with `CHATWORK_UNREPLIED_WARN=0` (or `false`).
+function unrepliedWarnEnabled(): boolean {
+  const raw = process.env.CHATWORK_UNREPLIED_WARN;
+  if (raw === undefined || raw.trim() === "") return true;
+  const v = raw.trim().toLowerCase();
+  return !(v === "0" || v === "false" || v === "off" || v === "no");
 }
 
 // The logged-in account_id, from config or (once) from /me — cached back so the
@@ -174,23 +184,40 @@ async function resolveSelfAccountId(cfg: Config): Promise<number | undefined> {
   }
 }
 
-// Anti-spam nudge: if the most recent message in the room is our own and was
-// sent within the warning window, point the user at `cw edit` instead of
-// stacking another message. Never blocks — intentional multi-sends are valid.
-async function warnRecentSelfSend(
+// Anti-spam nudge: if the room's most recent message is our own, point the user
+// at `cw edit` instead of stacking another message. Never blocks — intentional
+// multi-sends are valid. Two independent triggers, reply-state primary:
+//   1. reply-state: the last message is ours → nobody has replied since
+//      (time-independent; the accurate signal for "don't spam an unanswered
+//      thread"). On unless CHATWORK_UNREPLIED_WARN=0.
+//   2. time-based: our last message was within CHATWORK_RESEND_WARN_SECONDS.
+// When the last message is ours and reply-state is enabled, the reply-state
+// warning wins; otherwise the time-based one may still fire.
+async function warnSelfSend(
   cfg: Config,
   ctx: RoomContext,
   roomArg: string,
 ): Promise<void> {
-  const thresholdSec = resendWarnSeconds();
-  if (thresholdSec <= 0) return;
   const last = ctx.messages[ctx.messages.length - 1];
   if (!last) return;
   const selfId = await resolveSelfAccountId(cfg);
   if (selfId === undefined || last.account.account_id !== selfId) return;
+  // The last message in the room is ours → no one has replied since.
+  const dest = ctx.rid != null ? String(ctx.rid) : roomArg;
+
+  if (unrepliedWarnEnabled()) {
+    console.error(`⚠ 相手はまだ返信していません(最後のメッセージはあなたのものです)。`);
+    console.error(`  連投を避けるため、新規送信でなく直前のメッセージの編集を検討してください:`);
+    console.error(`  cw edit ${dest} ${last.message_id} "<新しい本文>"`);
+    console.error(`  このまま送信する場合はそのまま --code で確定してください。`);
+    return;
+  }
+
+  // reply-state warning off — fall back to the time-based window.
+  const thresholdSec = resendWarnSeconds();
+  if (thresholdSec <= 0) return;
   const agoSec = Math.max(0, Math.floor(Date.now() / 1000) - last.send_time);
   if (agoSec > thresholdSec) return;
-  const dest = ctx.rid != null ? String(ctx.rid) : roomArg;
   console.error(`⚠ 直前(${agoSec}秒前)に同じルームへ送信しています(message_id=${last.message_id})。`);
   console.error(`  連投ではなく、その内容を編集する方が適切かもしれません:`);
   console.error(`  cw edit ${dest} ${last.message_id} "<新しい本文>"`);
@@ -263,7 +290,7 @@ export async function cmdSend(args: {
     // Read-before-write: show the room's recent messages, a duplicate warning,
     // and a re-post nudge so the sender sees context before confirming.
     const ctx = await gatherRoomContext(cfg.token, args.room);
-    await warnRecentSelfSend(cfg, ctx, args.room);
+    await warnSelfSend(cfg, ctx, args.room);
     printConfirmContext(ctx, args.room, message);
     stagePending("send", code);
     console.log(`Re-run within ${PENDING_TTL_MS / 1000}s with --code=${code} to send.`);
