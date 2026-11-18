@@ -11,12 +11,16 @@
     "chatwork": "./ts/cli.ts",
     "cw": "./ts/cli.ts"
   },
-  "files": ["ts/", "README.md", "LICENSE"],
+  "files": [
+    "ts/",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "bun": ">=1.1"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsrs --noEmit",
     "test": "bun test",
     "chatwork": "bun ts/cli.ts"
   },
@@ -27,6 +31,7 @@
     "@types/bun": "latest",
     "@types/node": "^22",
     "@types/yargs": "^17.0.35",
-    "typescript": "^5.6"
+    "typescript": "^5.6",
+    "tsrs": "0.25.0-ts7.1.0-beta"
   }
 }
